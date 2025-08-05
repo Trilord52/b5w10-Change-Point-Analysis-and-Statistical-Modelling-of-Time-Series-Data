@@ -100,7 +100,7 @@ npm start
 ## Team
 
 - **Tutors**: Mahlet, Rediet, Kerod, Rehmet
-- **Student**: [Your Name]
+- **Student**: Tinbite Yonas
 
 ## References
 
