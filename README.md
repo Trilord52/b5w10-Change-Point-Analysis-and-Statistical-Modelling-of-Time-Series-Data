@@ -10,14 +10,14 @@ The main goal is to study how important events affect Brent oil prices, focusing
 
 ## Key Achievements
 
-### ✅ **Task 1: Foundation Setup (Complete)**
+### ✅ **Task 1: Foundation Setup**
 - **Comprehensive Data Analysis Workflow**: Reproducible, systematic analysis pipeline
 - **Event Dataset**: 15 major geopolitical events with detailed categorization and impact assessment
 - **Time Series Properties**: Complete analysis of trends, stationarity, and volatility patterns
 - **Assumptions & Limitations**: Thorough documentation of correlation vs. causation framework
 - **Change Point Model Purpose**: Clear business impact and methodological approach
 
-### ✅ **Task 2: Change Point Modeling and Insight Generation (Complete)**
+### ✅ **Task 2: Change Point Modeling and Insight Generation**
 - **Bayesian Change Point Detection**: PyMC3 implementation with comprehensive diagnostics
 - **Multiple Model Variants**: Single change point, multiple change points, volatility regime models
 - **Convergence Diagnostics**: Gelman-Rubin statistics, trace plots, effective sample sizes
@@ -25,7 +25,7 @@ The main goal is to study how important events affect Brent oil prices, focusing
 - **Quantitative Impact Analysis**: Measuring magnitude and duration of event effects
 - **Business Insights**: Actionable recommendations for different stakeholder groups
 
-### ✅ **Task 3: Interactive Dashboard (Complete)**
+### ✅ **Task 3: Interactive Dashboard**
 - **Flask Backend API**: RESTful endpoints with comprehensive error handling
 - **React Frontend**: Modern, responsive user interface with interactive visualizations
 - **Real-time Analysis**: Dynamic filtering and change point detection
@@ -293,80 +293,7 @@ change_points = detector.extract_change_points(results)
 - **Error Handling**: Robust exception management
 - **Testing Framework**: Unit tests for critical functions
 
-## Rubric Compliance
-
-### **Implementation of Change Point Modeling and Inference (30/30 pts - Excellent)**
-✅ **Comprehensive Bayesian Model Implementation**
-- PyMC3 models with proper priors and likelihood functions
-- MCMC sampling with convergence diagnostics
-- Statistical significance testing and confidence intervals
-- Quantitative impact analysis with measurable results
-
-✅ **Clear, Reproducible Steps**
-- Well-documented analysis workflow
-- Modular code structure with clear interfaces
-- Comprehensive error handling and validation
-- Version-controlled environment management
-
-✅ **Significant Outputs with Comprehensive Analysis**
-- Multiple model variants (single, multiple, volatility regime)
-- Event correlation analysis with temporal windows
-- Business impact quantification and recommendations
-- Visualizations and interactive dashboard
-
-### **Code Quality and Documentation (25/25 pts - Excellent)**
-✅ **Clean, Modular Code**
-- Professional code structure with clear separation of concerns
-- Consistent naming conventions (PEP 8 compliant)
-- Comprehensive error handling and input validation
-- Type hints and comprehensive docstrings
-
-✅ **Strategic Documentation**
-- Complete README with setup and usage instructions
-- API documentation with examples
-- Inline comments explaining complex algorithms
-- Troubleshooting guide and common issues
-
-### **API and Frontend Development (25/25 pts - Excellent)**
-✅ **Efficient Backend API**
-- RESTful Flask API with proper HTTP status codes
-- Input validation and error handling
-- CORS support and performance optimization
-- Comprehensive endpoint documentation
-
-✅ **Intuitive Frontend**
-- Responsive React dashboard with modern UI
-- Interactive visualizations using Recharts
-- Real-time data filtering and analysis
-- Error recovery and loading states
-
-### **Reproducibility and Project Completeness (20/20 pts - Excellent)**
-✅ **Complete Project Structure**
-- All required files and directories present
-- Proper dependency management with pinned versions
-- Clear setup instructions and environment requirements
-- Version control with comprehensive .gitignore
-
-✅ **Seamless Reproduction**
-- Fixed random seeds for reproducible results
-- Immutable data snapshots
-- Cached analysis results
-- Complete documentation enabling easy replication
-
-## Key Dates
-
-- **Discussion**: Wednesday 30 July 2025
-- **Interim Submission**: Sunday 01 Aug 2025 (20:00 UTC)
-- **Final Submission**: Tuesday 05 Aug 2025 (20:00 UTC)
-
-## Team
-
-**Tutors:**
-- Mahlet
-- Rediet
-- Kerod
-- Rehmet
-
+## Made by Tinbite Yonas
 ## References
 
 ### Data Science Workflow
@@ -402,8 +329,3 @@ This project is part of the 10 Academy Artificial Intelligence Mastery Program.
 For questions or support, please use the `#all-week10` channel or contact the project tutors.
 
 ---
-
-**Status**: ✅ All Tasks Complete - Excellent Level  
-**Last Updated**: August 5, 2025  
-**Version**: 1.0.0  
-**Rubric Score**: 100/100 points 
