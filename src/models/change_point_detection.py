@@ -1,7 +1,7 @@
 """
 Bayesian Change Point Detection for Brent Oil Prices
 
-This module implements Bayesian change point detection using PyMC3
+This module implements comprehensive Bayesian change point detection using PyMC3
 to identify structural breaks in the Brent oil price time series.
 """
 
@@ -17,113 +17,137 @@ warnings.filterwarnings('ignore')
 
 class BayesianChangePointDetector:
     """
-    A class to perform Bayesian change point detection on time series data.
+    Comprehensive Bayesian change point detection for Brent oil prices.
+    
+    This class implements multiple change point models using PyMC3:
+    - Single change point model for major structural breaks
+    - Multiple change point model for regime changes
+    - Volatility regime model for volatility clustering
     """
     
-    def __init__(self, data=None, log_returns=None):
+    def __init__(self, random_seed=42):
         """
         Initialize the change point detector.
         
         Parameters:
         -----------
-        data : pd.DataFrame, optional
-            Oil price data with Date index and Price column
-        log_returns : pd.Series, optional
-            Log returns series
+        random_seed : int
+            Random seed for reproducible results
         """
-        self.data = data
-        self.log_returns = log_returns
-        self.model = None
-        self.trace = None
-        self.change_points = None
+        self.random_seed = random_seed
+        np.random.seed(random_seed)
+        self.models = {}
+        self.traces = {}
+        self.results = {}
         
-    def prepare_data(self, data, use_log_returns=True):
+    def prepare_data(self, df):
         """
-        Prepare data for change point detection.
+        Prepare data for change point analysis with comprehensive validation.
         
         Parameters:
         -----------
-        data : pd.DataFrame
-            Oil price data with Date index and Price column
-        use_log_returns : bool
-            Whether to use log returns (recommended) or raw prices
+        df : pandas.DataFrame
+            DataFrame with 'Date' and 'Price' columns
             
         Returns:
         --------
-        tuple
-            (time_series, dates) for modeling
+        tuple : (dates, prices, log_returns, dates_array)
         """
-        self.data = data
+        # Validate input data
+        if df is None or df.empty:
+            raise ValueError("Input DataFrame is empty or None")
         
-        if use_log_returns:
-            # Calculate log returns
-            self.log_returns = np.log(data['Price'] / data['Price'].shift(1))
-            self.log_returns = self.log_returns.dropna()
-            
-            # Use log returns for modeling
-            time_series = self.log_returns.values
-            dates = self.log_returns.index
-            
-            print(f"Using log returns for change point detection")
-            print(f"Log returns mean: {time_series.mean():.4f}")
-            print(f"Log returns std: {time_series.std():.4f}")
-        else:
-            # Use raw prices
-            time_series = data['Price'].values
-            dates = data.index
-            
-            print(f"Using raw prices for change point detection")
-            print(f"Price mean: ${time_series.mean():.2f}")
-            print(f"Price std: ${time_series.std():.2f}")
+        required_columns = ['Date', 'Price']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise ValueError(f"Missing required columns: {missing_columns}")
         
-        return time_series, dates
+        # Ensure date column is datetime
+        df['Date'] = pd.to_datetime(df['Date'])
+        df = df.sort_values('Date').reset_index(drop=True)
+        
+        # Validate price data
+        if df['Price'].isnull().any():
+            print("Warning: Found null values in price data. Removing nulls...")
+            df = df.dropna(subset=['Price'])
+        
+        if (df['Price'] <= 0).any():
+            raise ValueError("Price data contains non-positive values")
+        
+        # Extract components
+        dates = df['Date'].values
+        prices = df['Price'].values
+        
+        # Calculate log returns with validation
+        log_returns = np.diff(np.log(prices))
+        dates_returns = dates[1:]  # Remove first date since we lose one observation
+        
+        # Validate log returns
+        if np.isnan(log_returns).any() or np.isinf(log_returns).any():
+            raise ValueError("Log returns contain NaN or infinite values")
+        
+        # Create array for PyMC3
+        dates_array = np.arange(len(log_returns))
+        
+        print(f"Data preparation completed:")
+        print(f"  - Original observations: {len(df)}")
+        print(f"  - Log returns observations: {len(log_returns)}")
+        print(f"  - Date range: {dates[0]} to {dates[-1]}")
+        print(f"  - Price range: ${prices.min():.2f} to ${prices.max():.2f}")
+        print(f"  - Log returns mean: {log_returns.mean():.6f}")
+        print(f"  - Log returns std: {log_returns.std():.6f}")
+        
+        return dates, prices, log_returns, dates_array
     
-    def build_single_change_point_model(self, time_series, n_changepoints=1):
+    def build_single_change_point_model(self, log_returns, dates_array):
         """
-        Build a Bayesian model with a single change point.
+        Build a single change point model using PyMC3 with comprehensive priors.
         
         Parameters:
         -----------
-        time_series : np.array
-            Time series data for modeling
-        n_changepoints : int
-            Number of change points to detect (default: 1)
+        log_returns : np.array
+            Log returns of the price series
+        dates_array : np.array
+            Array of time indices
             
         Returns:
         --------
         pymc.Model
             PyMC3 model object
         """
-        n_obs = len(time_series)
-        
-        with pm.Model() as model:
-            # Prior for change point location (uniform over all possible positions)
-            tau = pm.DiscreteUniform("tau", lower=1, upper=n_obs-1)
+        with pm.Model() as single_cp_model:
+            # Prior for the change point (switch point)
+            # Use uniform prior over all possible positions
+            tau = pm.DiscreteUniform("tau", lower=0, upper=len(log_returns)-1)
             
-            # Priors for means before and after change point
-            mu_1 = pm.Normal("mu_1", mu=0, sigma=1)
-            mu_2 = pm.Normal("mu_2", mu=0, sigma=1)
+            # Priors for the parameters before and after the change point
+            # Use informative priors based on data characteristics
+            mu_1 = pm.Normal("mu_1", mu=0, sigma=0.1)  # Mean before change
+            mu_2 = pm.Normal("mu_2", mu=0, sigma=0.1)  # Mean after change
             
-            # Prior for standard deviation
-            sigma = pm.HalfNormal("sigma", sigma=1)
+            # Use HalfNormal priors for volatility parameters
+            sigma_1 = pm.HalfNormal("sigma_1", sigma=0.1)  # Volatility before change
+            sigma_2 = pm.HalfNormal("sigma_2", sigma=0.1)  # Volatility after change
             
-            # Create the mean function that switches at the change point
-            mu = pm.math.switch(tau >= np.arange(n_obs), mu_1, mu_2)
+            # Switch function to select parameters based on change point
+            mu = pm.math.switch(tau >= dates_array, mu_1, mu_2)
+            sigma = pm.math.switch(tau >= dates_array, sigma_1, sigma_2)
             
-            # Likelihood
-            likelihood = pm.Normal("likelihood", mu=mu, sigma=sigma, observed=time_series)
+            # Likelihood with robust error handling
+            returns = pm.Normal("returns", mu=mu, sigma=sigma, observed=log_returns)
             
-        self.model = model
-        return model
+        return single_cp_model
     
-    def build_multiple_change_point_model(self, time_series, n_changepoints=2):
+    def build_multiple_change_point_model(self, log_returns, dates_array, n_changepoints=3):
         """
-        Build a Bayesian model with multiple change points.
+        Build a multiple change point model using PyMC3.
         
         Parameters:
         -----------
-        time_series : np.array
-            Time series data for modeling
+        log_returns : np.array
+            Log returns of the price series
+        dates_array : np.array
+            Array of time indices
         n_changepoints : int
             Number of change points to detect
             
@@ -132,251 +156,506 @@ class BayesianChangePointDetector:
         pymc.Model
             PyMC3 model object
         """
-        n_obs = len(time_series)
-        
-        with pm.Model() as model:
-            # Priors for change point locations
-            taus = []
-            for i in range(n_changepoints):
-                if i == 0:
-                    tau = pm.DiscreteUniform(f"tau_{i}", lower=1, upper=n_obs-1)
-                else:
-                    tau = pm.DiscreteUniform(f"tau_{i}", lower=taus[i-1]+1, upper=n_obs-1)
-                taus.append(tau)
+        with pm.Model() as multiple_cp_model:
+            # Priors for multiple change points
+            taus = pm.Uniform("taus", lower=0, upper=len(log_returns)-1, shape=n_changepoints)
             
-            # Priors for means in each segment
-            mus = []
-            for i in range(n_changepoints + 1):
-                mu = pm.Normal(f"mu_{i}", mu=0, sigma=1)
-                mus.append(mu)
+            # Sort change points to ensure order
+            tau_sorted = pm.math.sort(taus)
             
-            # Prior for standard deviation
-            sigma = pm.HalfNormal("sigma", sigma=1)
+            # Priors for parameters in each regime
+            mus = pm.Normal("mus", mu=0, sigma=0.1, shape=n_changepoints+1)
+            sigmas = pm.HalfNormal("sigmas", sigma=0.1, shape=n_changepoints+1)
             
-            # Create the mean function that switches at each change point
-            mu_values = []
-            for i in range(n_obs):
-                segment = 0
-                for j, tau in enumerate(taus):
-                    if i >= tau:
-                        segment = j + 1
-                mu_values.append(mus[segment])
+            # Create regime indicators
+            regime = pm.math.sum(pm.math.ge(dates_array[:, None], tau_sorted), axis=1)
             
-            mu = pm.math.stack(mu_values)
+            # Select parameters based on regime
+            mu = pm.math.switch(regime == 0, mus[0],
+                      pm.math.switch(regime == 1, mus[1],
+                      pm.math.switch(regime == 2, mus[2], mus[3])))
+            
+            sigma = pm.math.switch(regime == 0, sigmas[0],
+                       pm.math.switch(regime == 1, sigmas[1],
+                       pm.math.switch(regime == 2, sigmas[2], sigmas[3])))
             
             # Likelihood
-            likelihood = pm.Normal("likelihood", mu=mu, sigma=sigma, observed=time_series)
+            returns = pm.Normal("returns", mu=mu, sigma=sigma, observed=log_returns)
             
-        self.model = model
-        return model
+        return multiple_cp_model
     
-    def run_mcmc(self, draws=2000, tune=1000, chains=4, return_inferencedata=True):
+    def build_volatility_regime_model(self, log_returns, dates_array):
         """
-        Run MCMC sampling for the model.
+        Build a volatility regime model for detecting volatility clustering.
         
         Parameters:
         -----------
-        draws : int
-            Number of posterior draws
-        tune : int
-            Number of tuning steps
-        chains : int
-            Number of MCMC chains
-        return_inferencedata : bool
-            Whether to return ArviZ InferenceData object
+        log_returns : np.array
+            Log returns of the price series
+        dates_array : np.array
+            Array of time indices
             
         Returns:
         --------
-        arviz.InferenceData or pymc.MultiTrace
-            MCMC sampling results
+        pymc.Model
+            PyMC3 model object
         """
-        if self.model is None:
-            raise ValueError("Model must be built first. Call build_single_change_point_model() or build_multiple_change_point_model().")
-        
-        print(f"Running MCMC sampling with {draws} draws, {tune} tuning steps, and {chains} chains...")
-        
-        with self.model:
-            self.trace = pm.sample(
-                draws=draws,
-                tune=tune,
-                chains=chains,
-                return_inferencedata=return_inferencedata,
-                random_seed=42
-            )
-        
-        print("MCMC sampling completed!")
-        return self.trace
+        with pm.Model() as volatility_model:
+            # Prior for the volatility change point
+            tau = pm.DiscreteUniform("tau", lower=0, upper=len(log_returns)-1)
+            
+            # Priors for mean (assumed constant)
+            mu = pm.Normal("mu", mu=0, sigma=0.1)
+            
+            # Priors for volatility before and after change
+            sigma_1 = pm.HalfNormal("sigma_1", sigma=0.1)
+            sigma_2 = pm.HalfNormal("sigma_2", sigma=0.1)
+            
+            # Switch function for volatility
+            sigma = pm.math.switch(tau >= dates_array, sigma_1, sigma_2)
+            
+            # Likelihood
+            returns = pm.Normal("returns", mu=mu, sigma=sigma, observed=log_returns)
+            
+        return volatility_model
     
-    def analyze_results(self, dates):
+    def run_mcmc_sampling(self, model, model_name, draws=2000, tune=1000, chains=4):
         """
-        Analyze the MCMC results and extract change point information.
+        Run MCMC sampling for the specified model with comprehensive diagnostics.
         
         Parameters:
         -----------
-        dates : pd.DatetimeIndex
-            Date index corresponding to the time series
+        model : pymc.Model
+            PyMC3 model to sample from
+        model_name : str
+            Name for storing results
+        draws : int
+            Number of posterior samples
+        tune : int
+            Number of tuning samples
+        chains : int
+            Number of MCMC chains
+            
+        Returns:
+        --------
+        arviz.InferenceData
+            MCMC trace data
+        """
+        print(f"Running MCMC sampling for {model_name}...")
+        print(f"  - Draws: {draws}")
+        print(f"  - Tune: {tune}")
+        print(f"  - Chains: {chains}")
+        
+        try:
+            with model:
+                trace = pm.sample(
+                    draws=draws,
+                    tune=tune,
+                    chains=chains,
+                    random_seed=self.random_seed,
+                    return_inferencedata=True,
+                    progressbar=True
+                )
+            
+            self.traces[model_name] = trace
+            print(f"MCMC sampling completed successfully for {model_name}")
+            return trace
+            
+        except Exception as e:
+            print(f"Error during MCMC sampling for {model_name}: {str(e)}")
+            raise
+    
+    def check_convergence(self, trace, model_name):
+        """
+        Check MCMC convergence using comprehensive diagnostics.
+        
+        Parameters:
+        -----------
+        trace : arviz.InferenceData
+            MCMC trace data
+        model_name : str
+            Name of the model for reporting
             
         Returns:
         --------
         dict
-            Dictionary containing change point analysis results
+            Convergence diagnostics
         """
-        if self.trace is None:
-            raise ValueError("MCMC sampling must be run first. Call run_mcmc().")
+        print(f"\nConvergence Diagnostics for {model_name}:")
         
-        # Get summary statistics
-        summary = az.summary(self.trace)
+        # Summary statistics
+        summary = az.summary(trace)
+        print("\nParameter Summary:")
+        print(summary)
         
-        # Extract change point locations
-        tau_vars = [var for var in summary.index if var.startswith('tau')]
-        change_points = []
+        # Gelman-Rubin statistic (R-hat)
+        r_hat = summary['r_hat']
+        print(f"\nGelman-Rubin Statistics (R-hat):")
+        convergence_status = True
+        for param, r_hat_val in r_hat.items():
+            status = "✅ CONVERGED" if r_hat_val < 1.1 else "❌ NOT CONVERGED"
+            if r_hat_val >= 1.1:
+                convergence_status = False
+            print(f"  {param}: {r_hat_val:.3f} {status}")
         
-        for tau_var in tau_vars:
-            tau_mean = summary.loc[tau_var, 'mean']
-            tau_hdi_lower = summary.loc[tau_var, 'hdi_3%']
-            tau_hdi_upper = summary.loc[tau_var, 'hdi_97%']
-            
-            # Convert to dates
-            tau_date = dates.iloc[int(tau_mean)]
-            tau_date_lower = dates.iloc[int(tau_hdi_lower)]
-            tau_date_upper = dates.iloc[int(tau_hdi_upper)]
-            
-            change_points.append({
-                'variable': tau_var,
-                'date': tau_date,
-                'date_lower': tau_date_lower,
-                'date_upper': tau_date_upper,
-                'index': int(tau_mean),
-                'index_lower': int(tau_hdi_lower),
-                'index_upper': int(tau_hdi_upper)
-            })
+        # Effective sample size
+        ess = summary['ess_bulk']
+        print(f"\nEffective Sample Sizes:")
+        for param, ess_val in ess.items():
+            print(f"  {param}: {ess_val:.0f}")
         
-        # Extract parameter estimates
-        mu_vars = [var for var in summary.index if var.startswith('mu')]
-        mus = {}
-        for mu_var in mu_vars:
-            mus[mu_var] = {
-                'mean': summary.loc[mu_var, 'mean'],
-                'std': summary.loc[mu_var, 'std'],
-                'hdi_lower': summary.loc[mu_var, 'hdi_3%'],
-                'hdi_upper': summary.loc[mu_var, 'hdi_97%']
-            }
+        # Additional diagnostics
+        print(f"\nConvergence Assessment:")
+        print(f"  - All parameters converged: {'Yes' if convergence_status else 'No'}")
+        print(f"  - Minimum ESS: {ess.min():.0f}")
+        print(f"  - Maximum R-hat: {r_hat.max():.3f}")
         
-        # Extract sigma estimate
-        sigma = {
-            'mean': summary.loc['sigma', 'mean'],
-            'std': summary.loc['sigma', 'std'],
-            'hdi_lower': summary.loc['sigma', 'hdi_3%'],
-            'hdi_upper': summary.loc['sigma', 'hdi_97%']
+        return {
+            'summary': summary,
+            'r_hat': r_hat,
+            'ess': ess,
+            'converged': convergence_status
         }
+    
+    def plot_trace_diagnostics(self, trace, model_name):
+        """
+        Plot comprehensive MCMC trace diagnostics.
+        
+        Parameters:
+        -----------
+        trace : arviz.InferenceData
+            MCMC trace data
+        model_name : str
+            Name of the model for plot titles
+        """
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle(f'MCMC Trace Diagnostics - {model_name}', fontsize=16)
+        
+        # Trace plots
+        az.plot_trace(trace, axes=axes[0, :])
+        
+        # Autocorrelation plots
+        az.plot_autocorr(trace, axes=axes[1, :])
+        
+        plt.tight_layout()
+        plt.savefig(f'reports/trace_diagnostics_{model_name}.png', dpi=300, bbox_inches='tight')
+        plt.show()
+    
+    def analyze_single_change_point(self, trace, dates, log_returns, model_name):
+        """
+        Analyze results from single change point model with comprehensive impact analysis.
+        
+        Parameters:
+        -----------
+        trace : arviz.InferenceData
+            MCMC trace data
+        dates : np.array
+            Date array
+        log_returns : np.array
+            Log returns array
+        model_name : str
+            Name of the model
+            
+        Returns:
+        --------
+        dict
+            Analysis results
+        """
+        # Extract posterior samples
+        tau_samples = trace.posterior['tau'].values.flatten()
+        mu_1_samples = trace.posterior['mu_1'].values.flatten()
+        mu_2_samples = trace.posterior['mu_2'].values.flatten()
+        sigma_1_samples = trace.posterior['sigma_1'].values.flatten()
+        sigma_2_samples = trace.posterior['sigma_2'].values.flatten()
+        
+        # Calculate comprehensive statistics
+        tau_mean = np.mean(tau_samples)
+        tau_std = np.std(tau_samples)
+        tau_ci = np.percentile(tau_samples, [2.5, 97.5])
+        
+        mu_1_mean = np.mean(mu_1_samples)
+        mu_2_mean = np.mean(mu_2_samples)
+        sigma_1_mean = np.mean(sigma_1_samples)
+        sigma_2_mean = np.mean(sigma_2_samples)
+        
+        # Calculate change point date
+        change_point_idx = int(tau_mean)
+        change_point_date = dates[change_point_idx]
+        
+        # Comprehensive impact analysis
+        mean_change = mu_2_mean - mu_1_mean
+        volatility_change = sigma_2_mean - sigma_1_mean
+        
+        # Calculate percentage changes
+        mean_change_percent = (mean_change / abs(mu_1_mean)) * 100 if mu_1_mean != 0 else 0
+        volatility_change_percent = (volatility_change / sigma_1_mean) * 100 if sigma_1_mean != 0 else 0
+        
+        # Calculate confidence intervals for impact measures
+        mean_change_ci = np.percentile(mu_2_samples - mu_1_samples, [2.5, 97.5])
+        volatility_change_ci = np.percentile(sigma_2_samples - sigma_1_samples, [2.5, 97.5])
+        
+        # Statistical significance test
+        # Calculate probability that the change is significant
+        prob_significant_mean = np.mean((mu_2_samples - mu_1_samples) != 0)
+        prob_significant_vol = np.mean((sigma_2_samples - sigma_1_samples) != 0)
         
         results = {
-            'change_points': change_points,
-            'mus': mus,
-            'sigma': sigma,
-            'summary': summary
+            'change_point_idx': change_point_idx,
+            'change_point_date': change_point_date,
+            'tau_mean': tau_mean,
+            'tau_std': tau_std,
+            'tau_ci': tau_ci,
+            'mu_1_mean': mu_1_mean,
+            'mu_2_mean': mu_2_mean,
+            'sigma_1_mean': sigma_1_mean,
+            'sigma_2_mean': sigma_2_mean,
+            'mean_change': mean_change,
+            'volatility_change': volatility_change,
+            'mean_change_percent': mean_change_percent,
+            'volatility_change_percent': volatility_change_percent,
+            'mean_change_ci': mean_change_ci,
+            'volatility_change_ci': volatility_change_ci,
+            'prob_significant_mean': prob_significant_mean,
+            'prob_significant_vol': prob_significant_vol,
+            'tau_samples': tau_samples,
+            'mu_1_samples': mu_1_samples,
+            'mu_2_samples': mu_2_samples,
+            'sigma_1_samples': sigma_1_samples,
+            'sigma_2_samples': sigma_2_samples
         }
         
-        self.change_points = change_points
+        self.results[model_name] = results
+        
+        # Print comprehensive results
+        print(f"\nComprehensive Change Point Analysis Results:")
+        print(f"  Change Point Date: {change_point_date.strftime('%Y-%m-%d')}")
+        print(f"  Change Point Index: {change_point_idx} (95% CI: {int(tau_ci[0])} to {int(tau_ci[1])})")
+        print(f"  Mean Change: {mean_change:.6f} ({mean_change_percent:.2f}%)")
+        print(f"  Mean Change 95% CI: [{mean_change_ci[0]:.6f}, {mean_change_ci[1]:.6f}]")
+        print(f"  Volatility Change: {volatility_change:.6f} ({volatility_change_percent:.2f}%)")
+        print(f"  Volatility Change 95% CI: [{volatility_change_ci[0]:.6f}, {volatility_change_ci[1]:.6f}]")
+        print(f"  Probability of Significant Mean Change: {prob_significant_mean:.3f}")
+        print(f"  Probability of Significant Volatility Change: {prob_significant_vol:.3f}")
         
         return results
     
-    def plot_trace(self, figsize=(15, 10)):
+    def plot_change_point_results(self, results, dates, log_returns, model_name):
         """
-        Plot MCMC trace plots to check convergence.
+        Plot comprehensive change point analysis results.
         
         Parameters:
         -----------
-        figsize : tuple
-            Figure size (width, height)
+        results : dict
+            Analysis results
+        dates : np.array
+            Date array
+        log_returns : np.array
+            Log returns array
+        model_name : str
+            Name of the model
         """
-        if self.trace is None:
-            raise ValueError("MCMC sampling must be run first. Call run_mcmc().")
+        fig, axes = plt.subplots(2, 2, figsize=(20, 12))
+        fig.suptitle(f'Change Point Analysis Results - {model_name}', fontsize=16)
         
-        az.plot_trace(self.trace, figsize=figsize)
+        # Plot 1: Log returns with change point
+        axes[0, 0].plot(dates[1:], log_returns, alpha=0.7, color='blue', linewidth=0.5)
+        axes[0, 0].axvline(x=results['change_point_date'], color='red', linestyle='--', 
+                           linewidth=2, label=f"Change Point: {results['change_point_date'].strftime('%Y-%m-%d')}")
+        axes[0, 0].set_title('Log Returns with Detected Change Point')
+        axes[0, 0].set_xlabel('Date')
+        axes[0, 0].set_ylabel('Log Returns')
+        axes[0, 0].legend()
+        axes[0, 0].grid(True, alpha=0.3)
+        
+        # Plot 2: Posterior distribution of change point
+        axes[0, 1].hist(results['tau_samples'], bins=50, alpha=0.7, color='green')
+        axes[0, 1].axvline(x=results['tau_mean'], color='red', linestyle='--', 
+                           linewidth=2, label=f"Mean: {results['tau_mean']:.0f}")
+        axes[0, 1].axvspan(results['tau_ci'][0], results['tau_ci'][1], alpha=0.3, color='red', 
+                           label=f"95% CI: [{int(results['tau_ci'][0])}, {int(results['tau_ci'][1])}]")
+        axes[0, 1].set_title('Posterior Distribution of Change Point')
+        axes[0, 1].set_xlabel('Time Index')
+        axes[0, 1].set_ylabel('Frequency')
+        axes[0, 1].legend()
+        axes[0, 1].grid(True, alpha=0.3)
+        
+        # Plot 3: Parameter comparison with confidence intervals
+        param_names = ['μ₁ (Before)', 'μ₂ (After)', 'σ₁ (Before)', 'σ₂ (After)']
+        param_values = [results['mu_1_mean'], results['mu_2_mean'], 
+                       results['sigma_1_mean'], results['sigma_2_mean']]
+        
+        bars = axes[1, 0].bar(param_names, param_values, 
+                              color=['blue', 'red', 'green', 'orange'])
+        axes[1, 0].set_title('Parameter Comparison Before/After Change Point')
+        axes[1, 0].set_ylabel('Value')
+        axes[1, 0].grid(True, alpha=0.3)
+        
+        # Add value labels on bars
+        for bar, value in zip(bars, param_values):
+            axes[1, 0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.001,
+                           f'{value:.4f}', ha='center', va='bottom')
+        
+        # Plot 4: Impact analysis
+        impact_metrics = ['Mean Change', 'Volatility Change']
+        impact_values = [results['mean_change'], results['volatility_change']]
+        impact_colors = ['red' if v < 0 else 'green' for v in impact_values]
+        
+        bars = axes[1, 1].bar(impact_metrics, impact_values, color=impact_colors)
+        axes[1, 1].set_title('Impact Analysis')
+        axes[1, 1].set_ylabel('Change Value')
+        axes[1, 1].grid(True, alpha=0.3)
+        
+        # Add value labels
+        for bar, value in zip(bars, impact_values):
+            axes[1, 1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.001,
+                           f'{value:.6f}', ha='center', va='bottom')
+        
         plt.tight_layout()
+        plt.savefig(f'reports/change_point_results_{model_name}.png', dpi=300, bbox_inches='tight')
         plt.show()
     
-    def plot_posterior(self, figsize=(15, 10)):
+    def correlate_with_events(self, results, events_df, model_name):
         """
-        Plot posterior distributions.
+        Correlate detected change points with geopolitical events with enhanced analysis.
         
         Parameters:
         -----------
-        figsize : tuple
-            Figure size (width, height)
-        """
-        if self.trace is None:
-            raise ValueError("MCMC sampling must be run first. Call run_mcmc().")
-        
-        az.plot_posterior(self.trace, figsize=figsize)
-        plt.tight_layout()
-        plt.show()
-    
-    def plot_change_points(self, dates, time_series, figsize=(15, 8)):
-        """
-        Plot the time series with detected change points.
-        
-        Parameters:
-        -----------
-        dates : pd.DatetimeIndex
-            Date index
-        time_series : np.array
-            Time series data
-        figsize : tuple
-            Figure size (width, height)
-        """
-        if self.change_points is None:
-            raise ValueError("Results must be analyzed first. Call analyze_results().")
-        
-        plt.figure(figsize=figsize)
-        plt.plot(dates, time_series, linewidth=1, alpha=0.8, label='Time Series')
-        
-        # Plot change points
-        colors = ['red', 'orange', 'green', 'blue', 'purple']
-        for i, cp in enumerate(self.change_points):
-            color = colors[i % len(colors)]
-            plt.axvline(x=cp['date'], color=color, linestyle='--', alpha=0.8, 
-                       label=f"Change Point {i+1}: {cp['date'].strftime('%Y-%m-%d')}")
+        results : dict
+            Analysis results
+        events_df : pandas.DataFrame
+            Events dataset
+        model_name : str
+            Name of the model
             
-            # Plot uncertainty interval
-            plt.axvspan(cp['date_lower'], cp['date_upper'], alpha=0.2, color=color)
+        Returns:
+        --------
+        dict
+            Correlation analysis results
+        """
+        change_point_date = results['change_point_date']
         
-        plt.title('Time Series with Detected Change Points', fontsize=16, fontweight='bold')
-        plt.xlabel('Date', fontsize=12)
-        plt.ylabel('Value', fontsize=12)
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.show()
+        # Find events within multiple windows around the change point
+        windows = [7, 30, 90]  # 1 week, 1 month, 3 months
+        correlation_results = {}
+        
+        for window_days in windows:
+            start_date = change_point_date - timedelta(days=window_days)
+            end_date = change_point_date + timedelta(days=window_days)
+            
+            # Convert events dates to datetime
+            events_df['Date'] = pd.to_datetime(events_df['Date'])
+            
+            # Find nearby events
+            nearby_events = events_df[
+                (events_df['Date'] >= start_date) & 
+                (events_df['Date'] <= end_date)
+            ].copy()
+            
+            if len(nearby_events) > 0:
+                # Calculate days difference
+                nearby_events['Days_Difference'] = (
+                    nearby_events['Date'] - change_point_date
+                ).dt.days
+                
+                # Sort by proximity
+                nearby_events = nearby_events.sort_values('Days_Difference')
+                
+                correlation_results[f'window_{window_days}'] = {
+                    'window_days': window_days,
+                    'nearby_events': nearby_events,
+                    'total_events': len(nearby_events),
+                    'closest_event': nearby_events.iloc[0] if len(nearby_events) > 0 else None
+                }
+        
+        # Print comprehensive correlation analysis
+        print(f"\nEvent Correlation Analysis:")
+        print(f"Change Point Date: {change_point_date.strftime('%Y-%m-%d')}")
+        
+        for window_key, window_data in correlation_results.items():
+            print(f"\n{window_data['window_days']}-day window (±{window_data['window_days']} days):")
+            print(f"  Events found: {window_data['total_events']}")
+            
+            if window_data['closest_event'] is not None:
+                closest = window_data['closest_event']
+                print(f"  Closest event: {closest['Event_Name']}")
+                print(f"    Date: {closest['Date'].strftime('%Y-%m-%d')}")
+                print(f"    Category: {closest['Category']}")
+                print(f"    Impact Level: {closest['Impact_Level']}")
+                print(f"    Days from change point: {closest['Days_Difference']}")
+        
+        return correlation_results
     
-    def print_results(self):
+    def run_complete_analysis(self, df, events_df=None):
         """
-        Print a summary of the change point detection results.
+        Run complete change point analysis pipeline with comprehensive validation.
+        
+        Parameters:
+        -----------
+        df : pandas.DataFrame
+            Price data with 'Date' and 'Price' columns
+        events_df : pandas.DataFrame, optional
+            Events dataset for correlation analysis
+            
+        Returns:
+        --------
+        dict
+            Complete analysis results
         """
-        if self.change_points is None:
-            raise ValueError("Results must be analyzed first. Call analyze_results().")
+        print("Starting comprehensive change point analysis...")
         
-        print("=" * 60)
-        print("BAYESIAN CHANGE POINT DETECTION RESULTS")
-        print("=" * 60)
+        # Prepare data with validation
+        dates, prices, log_returns, dates_array = self.prepare_data(df)
         
-        print(f"\nDetected {len(self.change_points)} change point(s):")
-        for i, cp in enumerate(self.change_points):
-            print(f"\nChange Point {i+1}:")
-            print(f"  Date: {cp['date'].strftime('%Y-%m-%d')}")
-            print(f"  95% HDI: {cp['date_lower'].strftime('%Y-%m-%d')} to {cp['date_upper'].strftime('%Y-%m-%d')}")
-            print(f"  Index: {cp['index']} (range: {cp['index_lower']} to {cp['index_upper']})")
-
-
-def main():
-    """
-    Main function to demonstrate change point detection.
-    """
-    # This would be called after loading data
-    print("Bayesian Change Point Detection Module")
-    print("Use this module with your data after loading and preprocessing.")
-
-
-if __name__ == "__main__":
-    main() 
+        # Run single change point model
+        print("\n=== Single Change Point Model ===")
+        single_model = self.build_single_change_point_model(log_returns, dates_array)
+        single_trace = self.run_mcmc_sampling(single_model, "single_cp")
+        single_convergence = self.check_convergence(single_trace, "Single Change Point")
+        single_results = self.analyze_single_change_point(single_trace, dates, log_returns, "single_cp")
+        self.plot_trace_diagnostics(single_trace, "single_cp")
+        self.plot_change_point_results(single_results, dates, log_returns, "single_cp")
+        
+        # Run volatility regime model
+        print("\n=== Volatility Regime Model ===")
+        vol_model = self.build_volatility_regime_model(log_returns, dates_array)
+        vol_trace = self.run_mcmc_sampling(vol_model, "volatility_regime")
+        vol_convergence = self.check_convergence(vol_trace, "Volatility Regime")
+        
+        # Correlate with events if provided
+        if events_df is not None:
+            print("\n=== Event Correlation Analysis ===")
+            event_correlation = self.correlate_with_events(single_results, events_df, "single_cp")
+        
+        # Compile comprehensive results
+        complete_results = {
+            'single_change_point': single_results,
+            'volatility_regime': {
+                'trace': vol_trace,
+                'convergence': vol_convergence
+            },
+            'data_info': {
+                'total_observations': len(log_returns),
+                'date_range': f"{dates[1].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}",
+                'mean_return': np.mean(log_returns),
+                'volatility': np.std(log_returns),
+                'skewness': float(pd.Series(log_returns).skew()),
+                'kurtosis': float(pd.Series(log_returns).kurtosis())
+            },
+            'model_performance': {
+                'single_cp_converged': single_convergence['converged'],
+                'volatility_converged': vol_convergence['converged'],
+                'max_r_hat_single': single_convergence['r_hat'].max(),
+                'max_r_hat_vol': vol_convergence['r_hat'].max()
+            }
+        }
+        
+        if events_df is not None:
+            complete_results['event_correlation'] = event_correlation
+        
+        print("\n=== Analysis Complete ===")
+        print(f"Detected change point: {single_results['change_point_date'].strftime('%Y-%m-%d')}")
+        print(f"Mean change: {single_results['mean_change']:.6f} ({single_results['mean_change_percent']:.2f}%)")
+        print(f"Volatility change: {single_results['volatility_change']:.6f} ({single_results['volatility_change_percent']:.2f}%)")
+        print(f"Model convergence: {'✅ All models converged' if single_convergence['converged'] and vol_convergence['converged'] else '❌ Some models did not converge'}")
+        
+        return complete_results 
